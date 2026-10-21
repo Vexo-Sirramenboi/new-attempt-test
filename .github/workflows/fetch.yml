@@ -1,52 +1,49 @@
-
 name: Deploy Vella to GitHub Pages
 
-on:
-  push:
-    branches:
-      - main
-  workflow_dispatch:
+on: push: branches: - main workflow_dispatch:
 
-permissions:
-  contents: read
-  pages: write
-  id-token: write
+permissions: contents: read pages: write id-token: write
 
-concurrency:
-  group: github-pages
-  cancel-in-progress: true
+concurrency: group: github-pages cancel-in-progress: true
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+jobs: deploy: runs-on: ubuntu-latest
 
-      - name: Configure GitHub Pages
-        uses: actions/configure-pages@v5
+environment:
+  name: github-pages
+  url: ${{ steps.deployment.outputs.page_url }}
 
-      - name: Prepare website files
-        run: |
-          mkdir -p _site
-          cp index.html _site/
-          cp -r assets _site/
-          if [ -d img ]; then cp -r img _site/; fi
-          if [ -f sw.js ]; then cp sw.js _site/; fi
-          touch _site/.nojekyll
+steps:
+  - name: Checkout repository
+    uses: actions/checkout@v4
 
-      - name: Upload website artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: _site
+  - name: Configure GitHub Pages
+    uses: actions/configure-pages@v5
 
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+  - name: Prepare root website files
+    run: |
+      mkdir -p _site
+      rsync -a \
+        --exclude='.git/' \
+        --exclude='.github/' \
+        --exclude='_site/' \
+        --exclude='node_modules/' \
+        --exclude='.gitignore' \
+        ./ _site/
+      touch _site/.nojekyll
+
+  - name: Verify required files
+    run: |
+      test -f _site/index.html
+      test -f _site/assets/index-dca4ee38.js
+      test -f _site/assets/index-5acc0c4c.css
+      test -f _site/img/vella.svg
+      test -f _site/sw.js
+
+  - name: Upload website artifact
+    uses: actions/upload-pages-artifact@v3
+    with:
+      path: _site
+
+  - name: Deploy to GitHub Pages
+    id: deployment
+    uses: actions/deploy-pages@v4

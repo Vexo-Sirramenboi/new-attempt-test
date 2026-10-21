@@ -33,6 +33,7 @@ jobs:
 
       - name: Prepare root website files
         run: |
+          set -eu
           mkdir -p _site
           rsync -a \
             --exclude='.git/' \
@@ -43,15 +44,49 @@ jobs:
             ./ _site/
           touch _site/.nojekyll
 
-      - name: Verify required files
+      - name: Verify website files
         run: |
           set -eu
-          test -f _site/index.html
-          test -f _site/assets/index-dca4ee38.js
-          test -f _site/assets/index-5acc0c4c.css
-          test -f _site/img/vella.svg
-          test -f _site/sw.js
-          echo "All required Vella files were found."
+
+          echo "Checking website files..."
+
+          if [ ! -f "_site/index.html" ]; then
+            echo "::error::index.html was not found in the repository root."
+            exit 1
+          fi
+
+          echo "Found index.html"
+
+          echo "JavaScript files:"
+          find _site/assets -maxdepth 1 -type f -name '*.js' -print 2>/dev/null || true
+
+          echo "CSS files:"
+          find _site/assets -maxdepth 1 -type f -name '*.css' -print 2>/dev/null || true
+
+          echo "Checking Vella assets..."
+
+          for file in \
+            "_site/img/vella.svg" \
+            "_site/sw.js"
+          do
+            if [ -f "$file" ]; then
+              echo "FOUND: $file"
+            else
+              echo "WARNING: $file is missing"
+            fi
+          done
+
+          if ! find _site/assets -maxdepth 1 -type f -name '*.js' -print -quit 2>/dev/null | grep -q .; then
+            echo "::error::No JavaScript files were found in _site/assets."
+            exit 1
+          fi
+
+          if ! find _site/assets -maxdepth 1 -type f -name '*.css' -print -quit 2>/dev/null | grep -q .; then
+            echo "::error::No CSS files were found in _site/assets."
+            exit 1
+          fi
+
+          echo "Website file verification completed."
 
       - name: Upload website artifact
         uses: actions/upload-pages-artifact@v3

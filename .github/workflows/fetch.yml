@@ -1,49 +1,63 @@
+
 name: Deploy Vella to GitHub Pages
 
-on: push: branches: - main workflow_dispatch:
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
 
-permissions: contents: read pages: write id-token: write
+permissions:
+  contents: read
+  pages: write
+  id-token: write
 
-concurrency: group: github-pages cancel-in-progress: true
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
 
-jobs: deploy: runs-on: ubuntu-latest
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
 
-environment:
-  name: github-pages
-  url: ${{ steps.deployment.outputs.page_url }}
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
 
-steps:
-  - name: Checkout repository
-    uses: actions/checkout@v4
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-  - name: Configure GitHub Pages
-    uses: actions/configure-pages@v5
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
 
-  - name: Prepare root website files
-    run: |
-      mkdir -p _site
-      rsync -a \
-        --exclude='.git/' \
-        --exclude='.github/' \
-        --exclude='_site/' \
-        --exclude='node_modules/' \
-        --exclude='.gitignore' \
-        ./ _site/
-      touch _site/.nojekyll
+      - name: Prepare root website files
+        run: |
+          mkdir -p _site
+          rsync -a \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            --exclude='_site/' \
+            --exclude='node_modules/' \
+            --exclude='.gitignore' \
+            ./ _site/
+          touch _site/.nojekyll
 
-  - name: Verify required files
-    run: |
-      test -f _site/index.html
-      test -f _site/assets/index-dca4ee38.js
-      test -f _site/assets/index-5acc0c4c.css
-      test -f _site/img/vella.svg
-      test -f _site/sw.js
+      - name: Verify required files
+        run: |
+          set -eu
+          test -f _site/index.html
+          test -f _site/assets/index-dca4ee38.js
+          test -f _site/assets/index-5acc0c4c.css
+          test -f _site/img/vella.svg
+          test -f _site/sw.js
+          echo "All required Vella files were found."
 
-  - name: Upload website artifact
-    uses: actions/upload-pages-artifact@v3
-    with:
-      path: _site
+      - name: Upload website artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
 
-  - name: Deploy to GitHub Pages
-    id: deployment
-    uses: actions/deploy-pages@v4
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

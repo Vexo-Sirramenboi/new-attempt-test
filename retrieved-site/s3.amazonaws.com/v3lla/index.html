@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-1KBBYVMQDY"></script>
+  <script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-1KBBYVMQDY');
+  </script>
+  <title>vella</title>
+  <link rel="icon" id="favicon" href="img/vella.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Sacramento&family=Instrument+Serif:ital@0;1&family=Bodoni+Moda:ital,wght@1,500&family=Bagel+Fat+One&family=Pinyon+Script&family=Orbitron:wght@700&family=Pacifico&family=Press+Start+2P&family=Audiowide&family=Monoton&family=Bungee&family=Creepster&display=swap">
+  <script type="module">
+  self.__vkb = location.pathname.replace(/[^/]*$/, "");
+  (()=>{const k="7m4RAWBK",d=(s)=>{const b=atob(s);let o="";for(let i=0;i<b.length;i++)o+=String.fromCharCode(b.charCodeAt(i)^k.charCodeAt(i%k.length));return o};self.__vka=d("XxlAIjJtbWRBCFg+IHkgKlUUGzwuIyc4");self.__vkw=d("QB5HaG54NC5bAVV8IzYgMhgZVT4qJG0=");self.__vkl=[d("QB5HaG54NC5bAVV8IzYgMhgZVT4qJG0="),d("QB5HaG54KSJTHkQgJCcsLkQZGj0zMG09XkI=")]})();
+  try { const f = window.fetch; window.fetch = function (i, o) { return f.call(this, i, o).then((r) => { const t = r.headers.get("x-vella-token"); if (t !== null) { try { t ? localStorage.setItem("vella.tok", t) : localStorage.removeItem("vella.tok"); } catch {} } return r; }); }; } catch {}
+  const go = () => import(self.__vkb + "assets/index-dca4ee38.js");
+  const sw = navigator.serviceWorker;
+  if (!sw || sw.controller) go();
+  else sw.register(self.__vkb + "sw.js", { scope: self.__vkb }).then(() => new Promise((r) => { if (sw.controller) return r(); sw.addEventListener("controllerchange", r, { once: true }); setTimeout(r, 5000); })).then(go, go);
+  </script>
+  <link rel="stylesheet" crossorigin href="assets/index-5acc0c4c.css">
+</head>
+<body>
+  <div id="root"></div>
+</body>
+</html>

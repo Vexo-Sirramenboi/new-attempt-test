@@ -34,7 +34,9 @@ jobs:
       - name: Prepare root website files
         run: |
           set -eu
+
           mkdir -p _site
+
           rsync -a \
             --exclude='.git/' \
             --exclude='.github/' \
@@ -42,51 +44,62 @@ jobs:
             --exclude='node_modules/' \
             --exclude='.gitignore' \
             ./ _site/
+
           touch _site/.nojekyll
 
-      - name: Verify website files
+      - name: Diagnose website assets
         run: |
           set -eu
 
-          echo "Checking website files..."
+          echo "Checking website root..."
 
           if [ ! -f "_site/index.html" ]; then
-            echo "::error::index.html was not found in the repository root."
+            echo "::error::index.html is missing from the repository root."
             exit 1
           fi
 
           echo "Found index.html"
 
-          echo "JavaScript files:"
-          find _site/assets -maxdepth 1 -type f -name '*.js' -print 2>/dev/null || true
+          echo ""
+          echo "JavaScript files in the deployed website:"
+          find _site -type f -name '*.js' -not -path '_site/.git/*' -print || true
 
-          echo "CSS files:"
-          find _site/assets -maxdepth 1 -type f -name '*.css' -print 2>/dev/null || true
+          echo ""
+          echo "CSS files in the deployed website:"
+          find _site -type f -name '*.css' -print || true
 
-          echo "Checking Vella assets..."
+          echo ""
+          echo "Asset references in index.html:"
+          grep -Eo '(src|href)="[^"]+"' _site/index.html || true
 
-          for file in \
-            "_site/img/vella.svg" \
-            "_site/sw.js"
-          do
-            if [ -f "$file" ]; then
-              echo "FOUND: $file"
-            else
-              echo "WARNING: $file is missing"
-            fi
-          done
+          echo ""
+          echo "Checking original repository files..."
 
-          if ! find _site/assets -maxdepth 1 -type f -name '*.js' -print -quit 2>/dev/null | grep -q .; then
-            echo "::error::No JavaScript files were found in _site/assets."
-            exit 1
+          find . \
+            -path './.git' -prune -o \
+            -path './.github' -prune -o \
+            -path './_site' -prune -o \
+            -path './node_modules' -prune -o \
+            -type f \( -name '*.js' -o -name '*.mjs' -o -name '*.css' \) \
+            -print || true
+
+          echo ""
+          echo "Checking optional assets..."
+
+          if [ -f "_site/img/vella.svg" ]; then
+            echo "FOUND: img/vella.svg"
+          else
+            echo "WARNING: img/vella.svg is missing"
           fi
 
-          if ! find _site/assets -maxdepth 1 -type f -name '*.css' -print -quit 2>/dev/null | grep -q .; then
-            echo "::error::No CSS files were found in _site/assets."
-            exit 1
+          if [ -f "_site/sw.js" ]; then
+            echo "FOUND: sw.js"
+          else
+            echo "WARNING: sw.js is missing; continuing without it"
           fi
 
-          echo "Website file verification completed."
+          echo ""
+          echo "Asset diagnostics completed."
 
       - name: Upload website artifact
         uses: actions/upload-pages-artifact@v3

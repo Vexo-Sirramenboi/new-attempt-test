@@ -1,96 +1,52 @@
 
-name: Retrieve Website Source and Assets
+name: Deploy Vella to GitHub Pages
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
 
 concurrency:
-  group: retrieve-v3lla-site
-  cancel-in-progress: false
+  group: github-pages
+  cancel-in-progress: true
 
 jobs:
-  retrieve:
+  build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-
     steps:
-      - name: Check out main branch
+      - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Prepare website files
+        run: |
+          mkdir -p _site
+          cp index.html _site/
+          cp -r assets _site/
+          if [ -d img ]; then cp -r img _site/; fi
+          if [ -f sw.js ]; then cp sw.js _site/; fi
+          touch _site/.nojekyll
+
+      - name: Upload website artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          ref: main
+          path: _site
 
-      - name: Install tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y wget awscli
-
-      - name: Download public S3 bucket objects
-        shell: bash
-        run: |
-          mkdir -p /tmp/v3lla-download
-
-          if aws s3 ls s3://v3lla/ --no-sign-request \
-              >/tmp/s3-listing.txt 2>/tmp/s3-error.txt; then
-            aws s3 sync s3://v3lla/ /tmp/v3lla-download/ \
-              --no-sign-request \
-              --only-show-errors
-          else
-            echo "Bucket listing unavailable; continuing with website crawl."
-            cat /tmp/s3-error.txt
-          fi
-
-      - name: Crawl website and assets
-        shell: bash
-        run: |
-          mkdir -p /tmp/v3lla-crawl
-
-          wget \
-            --recursive \
-            --level=5 \
-            --page-requisites \
-            --adjust-extension \
-            --convert-links \
-            --no-parent \
-            --domains=s3.amazonaws.com \
-            --directory-prefix=/tmp/v3lla-crawl \
-            --timeout=20 \
-            --tries=2 \
-            https://s3.amazonaws.com/v3lla/index.html \
-            || echo "Some resources could not be downloaded."
-
-      - name: Copy downloaded files to repository root
-        shell: bash
-        run: |
-          # Copy bucket objects without creating a nested directory.
-          cp -an /tmp/v3lla-download/. . 2>/dev/null || true
-
-          # Flatten the crawler's S3 host/bucket directory structure.
-          CRAWL_DIR="/tmp/v3lla-crawl/s3.amazonaws.com/v3lla"
-
-          if [ -d "$CRAWL_DIR" ]; then
-            cp -an "$CRAWL_DIR"/. .
-          fi
-
-          echo "Files now in repository:"
-          find . -maxdepth 3 -type f \
-            ! -path './.git/*' | sort | head -500
-
-      - name: Commit to main
-        shell: bash
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email \
-            "41898282+github-actions[bot]@users.noreply.github.com"
-
-          git add -A
-
-          if git diff --cached --quiet; then
-            echo "No changes to commit."
-            exit 0
-          fi
-
-          git commit -m "Retrieve website source and assets"
-          git push origin HEAD:main
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

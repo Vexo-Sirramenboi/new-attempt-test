@@ -1,0 +1,18 @@
+{
+  "start_url": "https://storage.googleapis.com/yubico/study.html",
+  "pages_discovered": 1,
+  "assets_discovered": 4,
+  "total_files_saved": 5,
+  "max_urls": 5000,
+  "external_domains": [
+    "cdn.aetheron.top"
+  ],
+  "failed_downloads": [],
+  "files": [
+    "cdn.aetheron.top/aether-manifest.json",
+    "yubico/assets/BhB4B2mu.pack",
+    "yubico/bootstrap.js",
+    "yubico/index.html",
+    "yubico/study.html"
+  ]
+}

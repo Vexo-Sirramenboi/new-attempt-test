@@ -1,0 +1,5 @@
+https://cdn.aetheron.top/aether-manifest.json
+https://storage.googleapis.com/yubico/assets/BhB4B2mu.pack
+https://storage.googleapis.com/yubico/bootstrap.js
+https://storage.googleapis.com/yubico/index.html
+https://storage.googleapis.com/yubico/study.html

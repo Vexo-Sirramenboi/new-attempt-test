@@ -11,7 +11,8 @@ import requests
 from bs4 import BeautifulSoup
 
 START_URL = "https://storage.googleapis.com/yubico/study.html"
-OUTPUT_DIR = "mirror"
+# Change this from "mirror" to current directory "."
+OUTPUT_DIR = "."
 MAX_URLS = 5000
 MAX_BYTES_PER_FILE = 25 * 1024 * 1024
 TIMEOUT = 25

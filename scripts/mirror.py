@@ -405,62 +405,50 @@ def discover_sitemaps():
 
 
 def try_gcs_listing():
-    """If the source is a listable GCS bucket, enumerate everything."""
+    """Enumerate every object in the source GCS bucket."""
     m = re.match(
         r"https://storage\.googleapis\.com/([^/?#]+)", START_URL
     )
     if not m:
         return
 
-    bucket = m.group(1)
-    print(f"Trying GCS listing for bucket '{bucket}'...")
+    bucket = m.group(1)   # "yubico" — the bucket itself
+    print(f"Listing GCS bucket '{bucket}'...")
 
     list_url = (
         f"https://storage.googleapis.com/storage/v1/b/{bucket}"
         f"/o?maxResults=1000"
     )
+    all_items = []
     result = fetch(list_url)
-    if not result:
-        print("GCS listing not available (bucket not listable).")
-        return
 
-    _, data, _ = result
-    try:
-        payload = json.loads(data)
-    except ValueError:
-        return
-
-    items = payload.get("items", [])
-    for item in items:
-        name = item.get("name", "")
-        if name:
-            add_asset(
-                f"https://storage.googleapis.com/{bucket}/{name}"
-            )
-
-    # Handle pagination if the bucket has more than 1000 objects.
-    while payload.get("nextPageToken"):
-        token = payload["nextPageToken"]
-        result = fetch(
-            f"https://storage.googleapis.com/storage/v1/b/{bucket}"
-            f"/o?maxResults=1000&pageToken={token}"
-        )
-        if not result:
-            break
+    while result:
         _, data, _ = result
         try:
             payload = json.loads(data)
         except ValueError:
             break
-        for item in payload.get("items", []):
+
+        items = payload.get("items", [])
+        all_items.extend(items)
+
+        for item in items:
             name = item.get("name", "")
             if name:
+                # Bucket name doubles as the URL path prefix.
                 add_asset(
                     f"https://storage.googleapis.com/{bucket}/{name}"
                 )
-        items += payload.get("items", [])
 
-    print(f"GCS listing returned {len(items)} objects.")
+        token = payload.get("nextPageToken")
+        if not token:
+            break
+        result = fetch(
+            f"https://storage.googleapis.com/storage/v1/b/{bucket}"
+            f"/o?maxResults=1000&pageToken={token}"
+        )
+
+    print(f"GCS listing returned {len(all_items)} objects.")
 
 
 def probe_common_paths():

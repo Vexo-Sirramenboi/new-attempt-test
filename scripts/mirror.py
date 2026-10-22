@@ -390,25 +390,60 @@ def discover_sitemaps():
 
 
 def probe_common_paths():
-    """Queue likely file and directory locations for discovery."""
+    """HEAD-check likely locations; queue only ones that exist.
+    Probes do not count against MAX_URLS."""
     base = START._replace(path="/", query="").geturl()
     directory = START_PREFIX
 
+    candidates = set()
+
+    # Probe only inside the starting directory for bucket/CDN hosts,
+    # plus the bucket root for well-known files that must live there.
     for name in COMMON_PATHS:
-        add_asset(urljoin(base, name))
-        add_asset(urljoin(base, directory + name.lstrip("/")))
+        candidates.add(urljoin(base, directory + name.lstrip("/")))
 
     for d in COMMON_DIRS:
         dir_url = urljoin(base, directory + d + "/")
-        add_asset(dir_url)
         for ext in COMMON_EXTS:
-            add_asset(urljoin(dir_url, "index" + ext))
+            candidates.add(urljoin(dir_url, "index" + ext))
         for name in (
             "main", "app", "bundle", "chunk", "vendor",
             "index", "all", "styles", "script", "config",
         ):
             for ext in (".js", ".css", ".json", ".min.js", ".min.css"):
-                add_asset(urljoin(dir_url, name + ext))
+                candidates.add(urljoin(dir_url, name + ext))
+
+    # Filter out anything already seen/discovered.
+    candidates = {
+        c for c in candidates
+        if c not in seen_pages and c not in seen_assets
+    }
+
+    print(f"Probing {len(candidates)} candidate paths with HEAD...")
+    found = 0
+
+    for url in sorted(candidates):
+        try:
+            response = session.head(
+                url, timeout=TIMEOUT, allow_redirects=True
+            )
+
+            # GCS sometimes rejects HEAD; fall back to ranged GET.
+            if response.status_code == 403:
+                response = session.get(
+                    url, timeout=TIMEOUT,
+                    headers={"Range": "bytes=0-0"}, stream=True,
+                )
+                response.close()
+
+            if response.status_code == 200:
+                found += 1
+                add_asset(url)
+
+        except requests.RequestException:
+            pass
+
+    print(f"Probe found {found} existing paths.")
 
 
 def extract_css_references(css, base_url):

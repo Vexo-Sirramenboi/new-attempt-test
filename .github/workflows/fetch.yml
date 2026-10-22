@@ -8,7 +8,7 @@ on:
     - cron: "30 5 * * 1"
 
 permissions:
-  contents: read
+  contents: write   # <-- Crucial: allows GitHub Actions to push back to the repo
 
 concurrency:
   group: github-pages
@@ -36,39 +36,14 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: python scripts/mirror.py
 
-      - name: List every mirrored file
-        run: |
-          echo "All mirrored files:"
-          find . -maxdepth 2 -not -path '*/.*' -type f -printf '%s\t%p\n' | sort -k2
-          echo "Total files found"
-
-      - name: Upload crawl reports
-        uses: actions/upload-artifact@v4
-        with:
-          name: crawl-reports
-          path: |
-            crawl-report.json
-            urls.txt
-          if-no-files-found: warn
-
       - name: Verify output
         run: test -s index.html
 
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v4
-        with:
-          path: .
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Commit and push mirrored files
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          # Only commit if there are changes, otherwise skip to avoid empty commit errors
+          git diff --staged --quiet || git commit -m "Auto-mirror website updates [skip ci]"
+          git push

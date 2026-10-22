@@ -39,25 +39,25 @@ jobs:
       - name: List every mirrored file
         run: |
           echo "All mirrored files:"
-          find mirror -type f -printf '%s\t%p\n' | sort -k2
-          echo "Total: $(find mirror -type f | wc -l) files"
+          find . -maxdepth 2 -not -path '*/.*' -type f -printf '%s\t%p\n' | sort -k2
+          echo "Total files found"
 
       - name: Upload crawl reports
         uses: actions/upload-artifact@v4
         with:
           name: crawl-reports
           path: |
-            mirror/crawl-report.json
-            mirror/urls.txt
+            crawl-report.json
+            urls.txt
           if-no-files-found: warn
 
       - name: Verify output
-        run: test -s mirror/index.html
+        run: test -s index.html
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4
         with:
-          path: mirror
+          path: .
 
   deploy:
     needs: build

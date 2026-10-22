@@ -12,24 +12,13 @@ from bs4 import BeautifulSoup
 
 START_URL = "https://storage.googleapis.com/yubico/study.html"
 OUTPUT_DIR = "mirror"
-MAX_URLS = 3000
+MAX_URLS = 5000
 MAX_BYTES_PER_FILE = 25 * 1024 * 1024
 TIMEOUT = 25
 
-# Crawl pages only within the starting site's directory.
-# Download referenced assets from other hosts as dependencies,
-# but never recursively crawl unrelated external websites.
 START = urlparse(START_URL)
 START_PREFIX = START.path.rsplit("/", 1)[0] + "/"
 START_HOST = START.hostname
-
-REPOSITORY = os.environ.get("GITHUB_REPOSITORY", "")
-REPO_NAME = REPOSITORY.split("/")[-1] if REPOSITORY else ""
-
-if REPO_NAME.endswith(".github.io"):
-    BASE_PATH = ""
-else:
-    BASE_PATH = f"/{REPO_NAME}" if REPO_NAME else ""
 
 session = requests.Session()
 session.headers["User-Agent"] = "WebsiteMirror/1.0"
@@ -48,41 +37,52 @@ failed_urls = []
 external_domains = set()
 discovered_urls = set()
 
-# Common paths probed even if never linked anywhere.
-COMMON_PATHS = [
+# Base names tried with every extension in ALL_EXTS.
+BASE_NAMES = [
+    "index", "home", "main", "default", "app", "bundle", "vendor",
+    "chunk", "styles", "style", "script", "config", "manifest",
+    "sw", "service-worker", "robots", "sitemap", "humans",
+    "security", "favicon", "apple-touch-icon", "logo", "icon",
+    "offline", "404", "500", "about", "contact", "privacy",
+    "terms", "help", "faq", "login", "signup", "search",
+    "blog", "news", "feed", "atom", "rss", "ads", "data",
+    "assets", "common", "shared", "util", "utils", "core",
+]
+
+# Every common web file extension.
+ALL_EXTS = [
+    ".html", ".htm", ".xhtml", ".xml", ".json", ".txt", ".md",
+    ".pdf", ".zip", ".tar", ".gz", ".7z", ".rar", ".csv", ".tsv",
+    ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".css", ".scss",
+    ".less", ".map", ".webmanifest", ".manifest", ".plist",
+    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".avif",
+    ".bmp", ".ico", ".tif", ".tiff", ".woff", ".woff2", ".ttf",
+    ".otf", ".eot", ".mp4", ".webm", ".mov", ".avi", ".mp3",
+    ".wav", ".ogg", ".flac", ".m4a", ".xls", ".xlsx", ".doc",
+    ".docx", ".ppt", ".pptx", ".epub", ".apk", ".exe", ".dmg",
+    ".iso", ".yml", ".yaml", ".ini", ".cfg", ".conf", ".env",
+    ".bak", ".old", ".swf", ".wasm", ".ttl", ".rss",
+]
+
+# Well-known standalone filenames (no extension guessing).
+KNOWN_FILES = [
     "robots.txt", "sitemap.xml", "sitemap_index.xml",
     "sitemap-index.xml", "wp-sitemap.xml", "feed.xml",
     "atom.xml", "rss.xml", "ads.txt", "app-ads.txt",
-    "favicon.ico", "favicon.svg", "favicon-32x32.png",
-    "favicon-16x16.png", "apple-touch-icon.png",
-    "apple-touch-icon-precomposed.png", "manifest.json",
-    "site.webmanifest", "humans.txt", "security.txt",
-    ".well-known/security.txt", "crossdomain.xml",
-    "browserconfig.xml", "opensearch.xml", "404.html",
-    "offline.html", "sw.js", "service-worker.js",
-    "index.html", "index.htm", "about.html", "contact.html",
-    "privacy.html", "terms.html", "home.html", "main.html",
-    "menu.html", "blog.html", "posts.html", "news.html",
-    "store.html", "shop.html", "products.html",
-    "support.html", "help.html", "faq.html", "login.html",
-    "signup.html", "search.html", "archive.html", "tags.html",
-    "app.js", "main.js", "bundle.js", "styles.css",
-    "style.css", "main.css", "screen.css",
+    "favicon.ico", "manifest.json", "site.webmanifest",
+    "humans.txt", "security.txt", ".well-known/security.txt",
+    "crossdomain.xml", "browserconfig.xml", "opensearch.xml",
+    "404.html", "offline.html", "sw.js", "service-worker.js",
+    "apple-touch-icon.png", "apple-touch-icon-precomposed.png",
+    "favicon-32x32.png", "favicon-16x16.png", "favicon.svg",
 ]
 
-COMMON_DIRS = [
-    "assets", "static", "images", "img", "js", "css",
-    "media", "files", "downloads", "docs", "blog", "posts",
-    "news", "shop", "store", "products", "about", "contact",
-    "help", "support", "faq", "search", "api", "data",
-    "fonts", "icons", "pdf", "video", "audio",
-]
-
-COMMON_EXTS = [
-    ".html", ".htm", ".xml", ".json", ".txt", ".pdf", ".zip",
-    ".js", ".mjs", ".css", ".png", ".jpg", ".jpeg", ".gif",
-    ".svg", ".webp", ".ico", ".woff", ".woff2", ".ttf", ".eot",
-    ".mp4", ".webm", ".mp3", ".csv", ".md",
+DIR_NAMES = [
+    "assets", "static", "images", "img", "js", "css", "media",
+    "files", "downloads", "docs", "fonts", "icons", "data",
+    "api", "lib", "libs", "dist", "build", "public", "src",
+    "scripts", "styles", "video", "audio", "pdf", "content",
+    "uploads", "wp-content", "wp-uploads", "_next", "cdn",
 ]
 
 
@@ -109,7 +109,7 @@ def is_internal_page(url):
 
 
 def safe_local_path(url, content_type=""):
-    """Store files relative to the site root, mirroring their paths."""
+    """Every file goes into the mirror root, path-preserved."""
     parsed = urlparse(url)
     path = unquote(parsed.path).lstrip("/")
 
@@ -120,7 +120,6 @@ def safe_local_path(url, content_type=""):
     if any(part in ("..", ".") for part in parts):
         raise ValueError("Unsafe URL path")
 
-    # Different query strings can represent different resources.
     if parsed.query:
         root, ext = os.path.splitext(path)
         suffix = hashlib.sha256(
@@ -133,17 +132,16 @@ def safe_local_path(url, content_type=""):
         if ext:
             path += ext
 
-    # Files from a different host get a prefixed folder so they
-    # can't collide with the site's own paths.
+    # Files from a different host get a folder named after the host.
     if parsed.hostname and parsed.hostname != START_HOST:
-        return f"external/{parsed.hostname}/{path}"
+        path = f"{parsed.hostname}/{path}"
 
     return path
 
 
 def site_url(path):
-    """Build a URL that works on GitHub Pages project sites."""
-    return f"{BASE_PATH}/{path}" if BASE_PATH else f"/{path}"
+    """References resolve from the mirror root."""
+    return f"/{path}" if not path.startswith("/") else path
 
 
 def save(path, data):
@@ -192,16 +190,30 @@ def fetch(url):
         return final_url, b"".join(chunks), content_type
 
     except requests.RequestException as exc:
-        status = getattr(
-            getattr(exc, "response", None), "status_code", None
-        )
-        entry = {"url": url, "error": str(exc)}
-        if status is not None:
-            entry["status"] = status
-            entry["probed_404"] = status == 404
-        failed_urls.append(entry)
+        failed_urls.append({"url": url, "error": str(exc)})
         print("Failed:", url, exc)
         return None
+
+
+def head_exists(url):
+    """Cheap existence check. True only on HTTP 200."""
+    try:
+        response = session.head(
+            url, timeout=TIMEOUT, allow_redirects=True
+        )
+
+        # Some servers reject HEAD; fall back to a 1-byte GET.
+        if response.status_code in (403, 405):
+            response = session.get(
+                url, timeout=TIMEOUT,
+                headers={"Range": "bytes=0-0"}, stream=True,
+            )
+            response.close()
+
+        return response.status_code == 200
+
+    except requests.RequestException:
+        return False
 
 
 def is_html(content_type, path):
@@ -343,7 +355,6 @@ def parse_sitemap(xml_text):
             continue
         url = loc.string.strip()
         if url.endswith(".xml") and "sitemap" in url.lower():
-            # Sitemap index: queue the child sitemap.
             sitemap_queue.append(url)
         else:
             add_page(url)
@@ -393,59 +404,118 @@ def discover_sitemaps():
             parse_sitemap(data.decode("utf-8", errors="replace"))
 
 
-def probe_common_paths():
-    """HEAD-check likely locations; queue only ones that exist.
-    Probes do not count against MAX_URLS."""
-    base = START._replace(path="/", query="").geturl()
-    directory = START_PREFIX
+def try_gcs_listing():
+    """If the source is a listable GCS bucket, enumerate everything."""
+    m = re.match(
+        r"https://storage\.googleapis\.com/([^/?#]+)", START_URL
+    )
+    if not m:
+        return
 
+    bucket = m.group(1)
+    print(f"Trying GCS listing for bucket '{bucket}'...")
+
+    list_url = (
+        f"https://storage.googleapis.com/storage/v1/b/{bucket}"
+        f"/o?maxResults=1000"
+    )
+    result = fetch(list_url)
+    if not result:
+        print("GCS listing not available (bucket not listable).")
+        return
+
+    _, data, _ = result
+    try:
+        payload = json.loads(data)
+    except ValueError:
+        return
+
+    items = payload.get("items", [])
+    for item in items:
+        name = item.get("name", "")
+        if name:
+            add_asset(
+                f"https://storage.googleapis.com/{bucket}/{name}"
+            )
+
+    # Handle pagination if the bucket has more than 1000 objects.
+    while payload.get("nextPageToken"):
+        token = payload["nextPageToken"]
+        result = fetch(
+            f"https://storage.googleapis.com/storage/v1/b/{bucket}"
+            f"/o?maxResults=1000&pageToken={token}"
+        )
+        if not result:
+            break
+        _, data, _ = result
+        try:
+            payload = json.loads(data)
+        except ValueError:
+            break
+        for item in payload.get("items", []):
+            name = item.get("name", "")
+            if name:
+                add_asset(
+                    f"https://storage.googleapis.com/{bucket}/{name}"
+                )
+        items += payload.get("items", [])
+
+    print(f"GCS listing returned {len(items)} objects.")
+
+
+def probe_common_paths():
+    """HEAD-check name+extension combinations under the start path.
+    Probes never count against MAX_URLS; only hits are downloaded."""
+    directory = START_PREFIX
     candidates = set()
 
-    # Probe only inside the starting directory for bucket/CDN hosts,
-    # plus the bucket root for well-known files that must live there.
-    for name in COMMON_PATHS:
-        candidates.add(urljoin(base, directory + name.lstrip("/")))
+    # Well-known standalone files in the start directory.
+    for name in KNOWN_FILES:
+        candidates.add(
+            START._replace(
+                path=directory + name.lstrip("/"), query=""
+            ).geturl()
+        )
 
-    for d in COMMON_DIRS:
-        dir_url = urljoin(base, directory + d + "/")
-        for ext in COMMON_EXTS:
-            candidates.add(urljoin(dir_url, "index" + ext))
-        for name in (
-            "main", "app", "bundle", "chunk", "vendor",
-            "index", "all", "styles", "script", "config",
+    # Every base name x every extension, flat in the start directory.
+    for base in BASE_NAMES:
+        for ext in ALL_EXTS:
+            candidates.add(
+                START._replace(
+                    path=directory + base + ext, query=""
+                ).geturl()
+            )
+
+    # Common subdirectories: directory listing + index/bundle files.
+    for d in DIR_NAMES:
+        prefix = directory + d + "/"
+        candidates.add(
+            START._replace(path=prefix, query="").geturl()
+        )
+        for base in (
+            "index", "main", "app", "bundle", "vendor",
+            "config", "manifest",
         ):
-            for ext in (".js", ".css", ".json", ".min.js", ".min.css"):
-                candidates.add(urljoin(dir_url, name + ext))
+            for ext in ALL_EXTS:
+                candidates.add(
+                    START._replace(
+                        path=prefix + base + ext, query=""
+                    ).geturl()
+                )
 
-    # Filter out anything already seen/discovered.
+    # Skip anything already discovered.
     candidates = {
         c for c in candidates
         if c not in seen_pages and c not in seen_assets
     }
 
-    print(f"Probing {len(candidates)} candidate paths with HEAD...")
+    print(f"Probing {len(candidates)} candidate paths (HEAD)...")
     found = 0
 
     for url in sorted(candidates):
-        try:
-            response = session.head(
-                url, timeout=TIMEOUT, allow_redirects=True
-            )
-
-            # GCS sometimes rejects HEAD; fall back to ranged GET.
-            if response.status_code == 403:
-                response = session.get(
-                    url, timeout=TIMEOUT,
-                    headers={"Range": "bytes=0-0"}, stream=True,
-                )
-                response.close()
-
-            if response.status_code == 200:
-                found += 1
-                add_asset(url)
-
-        except requests.RequestException:
-            pass
+        if head_exists(url):
+            found += 1
+            add_asset(url)
 
     print(f"Probe found {found} existing paths.")
 
@@ -557,21 +627,6 @@ def rewrite_css(css, base_url):
     return pattern.sub(replace, css)
 
 
-def add_mirror_notice(soup, original_url):
-    banner = f"""
-<div style="all: initial; position: fixed; bottom: 0; left: 0; right: 0;
-            z-index: 2147483647; background: #fff3cd; color: #333;
-            font-family: system-ui, sans-serif; font-size: 14px;
-            padding: 12px 16px; border-top: 2px solid #d4a017;
-            text-align: center;">
-  <strong>Unofficial mirror / archive.</strong>
-  This is NOT an official page. Original source:
-  <a href="{original_url}">{original_url}</a>
-</div>
-"""
-    soup.body.insert(0, BeautifulSoup(banner, "html.parser"))
-
-
 def rewrite_html(data, page_url):
     soup = BeautifulSoup(data, "html.parser")
 
@@ -579,13 +634,8 @@ def rewrite_html(data, page_url):
     for tag in soup.find_all("base"):
         tag.decompose()
 
-    # Keep navigation pointing to the original site.
     for tag in soup.find_all("a", href=True):
-        abs_url = canonical(urljoin(page_url, tag["href"]))
-        if abs_url and is_internal_page(abs_url):
-            tag["href"] = abs_url
-        else:
-            tag["href"] = rewrite_reference(tag["href"], page_url)
+        tag["href"] = rewrite_reference(tag["href"], page_url)
 
     attrs = [
         ("script", "src"), ("img", "src"), ("source", "src"),
@@ -622,25 +672,6 @@ def rewrite_html(data, page_url):
                 rewrite_css(tag.string, page_url)
             )
 
-    # Don't present a third party's identity as our own.
-    title = soup.find("title")
-    if title and title.string:
-        title.string.replace_with(
-            f"[Mirror] {title.string} — unofficial copy"
-        )
-
-    for tag in soup.find_all(["meta", "link"]):
-        name = (tag.get("name") or tag.get("property") or "").lower()
-        if name in ("description", "og:title", "og:site_name",
-                    "og:image", "twitter:title"):
-            tag.decompose()
-        rels = [str(x).lower() for x in tag.get("rel", [])]
-        if "canonical" in rels:
-            tag.decompose()
-
-    if soup.body:
-        add_mirror_notice(soup, START_URL)
-
     return soup.encode("utf-8")
 
 
@@ -670,9 +701,17 @@ def rewrite_js(js, base_url):
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# Phase 0: sitemap and common-path discovery before the main crawl.
+# Phase 0: full enumeration before the main crawl.
+try_gcs_listing()
 discover_sitemaps()
 probe_common_paths()
+
+# Make sure the start page is fetched first.
+try:
+    pages_queue.remove(START_URL)
+except ValueError:
+    pass
+pages_queue.appendleft(START_URL)
 
 # Phase 1: crawl internal HTML pages and recursively discover assets.
 while (pages_queue or asset_queue) and (
@@ -743,7 +782,7 @@ for url, data in content_by_url.items():
 
     save(path, data)
 
-# Create a root entry point for GitHub Pages.
+# Root entry point.
 start_path = url_to_path.get(START_URL)
 
 if not start_path:

@@ -25,10 +25,8 @@ session.headers["User-Agent"] = "WebsiteMirror/1.0"
 
 pages_queue = deque([START_URL])
 asset_queue = deque()
-sitemap_queue = deque()
 seen_pages = set()
 seen_assets = set()
-seen_sitemaps = set()
 
 url_to_path = {}
 content_by_url = {}
@@ -36,54 +34,6 @@ type_by_url = {}
 failed_urls = []
 external_domains = set()
 discovered_urls = set()
-
-# Base names tried with every extension in ALL_EXTS.
-BASE_NAMES = [
-    "index", "home", "main", "default", "app", "bundle", "vendor",
-    "chunk", "styles", "style", "script", "config", "manifest",
-    "sw", "service-worker", "robots", "sitemap", "humans",
-    "security", "favicon", "apple-touch-icon", "logo", "icon",
-    "offline", "404", "500", "about", "contact", "privacy",
-    "terms", "help", "faq", "login", "signup", "search",
-    "blog", "news", "feed", "atom", "rss", "ads", "data",
-    "assets", "common", "shared", "util", "utils", "core",
-]
-
-# Every common web file extension.
-ALL_EXTS = [
-    ".html", ".htm", ".xhtml", ".xml", ".json", ".txt", ".md",
-    ".pdf", ".zip", ".tar", ".gz", ".7z", ".rar", ".csv", ".tsv",
-    ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".css", ".scss",
-    ".less", ".map", ".webmanifest", ".manifest", ".plist",
-    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".avif",
-    ".bmp", ".ico", ".tif", ".tiff", ".woff", ".woff2", ".ttf",
-    ".otf", ".eot", ".mp4", ".webm", ".mov", ".avi", ".mp3",
-    ".wav", ".ogg", ".flac", ".m4a", ".xls", ".xlsx", ".doc",
-    ".docx", ".ppt", ".pptx", ".epub", ".apk", ".exe", ".dmg",
-    ".iso", ".yml", ".yaml", ".ini", ".cfg", ".conf", ".env",
-    ".bak", ".old", ".swf", ".wasm", ".ttl", ".rss",
-]
-
-# Well-known standalone filenames (no extension guessing).
-KNOWN_FILES = [
-    "robots.txt", "sitemap.xml", "sitemap_index.xml",
-    "sitemap-index.xml", "wp-sitemap.xml", "feed.xml",
-    "atom.xml", "rss.xml", "ads.txt", "app-ads.txt",
-    "favicon.ico", "manifest.json", "site.webmanifest",
-    "humans.txt", "security.txt", ".well-known/security.txt",
-    "crossdomain.xml", "browserconfig.xml", "opensearch.xml",
-    "404.html", "offline.html", "sw.js", "service-worker.js",
-    "apple-touch-icon.png", "apple-touch-icon-precomposed.png",
-    "favicon-32x32.png", "favicon-16x16.png", "favicon.svg",
-]
-
-DIR_NAMES = [
-    "assets", "static", "images", "img", "js", "css", "media",
-    "files", "downloads", "docs", "fonts", "icons", "data",
-    "api", "lib", "libs", "dist", "build", "public", "src",
-    "scripts", "styles", "video", "audio", "pdf", "content",
-    "uploads", "wp-content", "wp-uploads", "_next", "cdn",
-]
 
 
 def canonical(url):
@@ -195,27 +145,6 @@ def fetch(url):
         return None
 
 
-def head_exists(url):
-    """Cheap existence check. True only on HTTP 200."""
-    try:
-        response = session.head(
-            url, timeout=TIMEOUT, allow_redirects=True
-        )
-
-        # Some servers reject HEAD; fall back to a 1-byte GET.
-        if response.status_code in (403, 405):
-            response = session.get(
-                url, timeout=TIMEOUT,
-                headers={"Range": "bytes=0-0"}, stream=True,
-            )
-            response.close()
-
-        return response.status_code == 200
-
-    except requests.RequestException:
-        return False
-
-
 def is_html(content_type, path):
     return (
         "html" in content_type
@@ -247,6 +176,12 @@ def add_page(url):
 
 
 def add_asset(url):
+    # Never mirror a service worker: it would take over the
+    # hosting domain's cache and serve stale copies.
+    if urlparse(url).path.lower().endswith(("/sw.js", "sw.js")):
+        print("Skipping service worker:", url)
+        return
+
     url = canonical(url)
     if not url:
         return
@@ -346,64 +281,6 @@ def html_references(soup, page_url):
             add_asset(url)
 
 
-def parse_sitemap(xml_text):
-    """Extract URLs from a sitemap or sitemap index file."""
-    soup = BeautifulSoup(xml_text, "html.parser")
-
-    for loc in soup.find_all("loc"):
-        if not loc.string:
-            continue
-        url = loc.string.strip()
-        if url.endswith(".xml") and "sitemap" in url.lower():
-            sitemap_queue.append(url)
-        else:
-            add_page(url)
-            add_asset(url)
-
-
-def discover_sitemaps():
-    """Fetch robots.txt and known sitemap locations, parse them."""
-    base = START._replace(path="/", query="").geturl()
-
-    robots_url = urljoin(base, "robots.txt")
-    result = fetch(robots_url)
-    if result:
-        _, data, _ = result
-        text = data.decode("utf-8", errors="replace")
-        for line in text.splitlines():
-            line = line.strip()
-            if line.lower().startswith("sitemap:"):
-                candidate = line.split(":", 1)[1].strip()
-                sitemap_queue.append(urljoin(base, candidate))
-
-    sitemap_queue.append(urljoin(base, "sitemap.xml"))
-    for extra in (
-        "sitemap_index.xml", "sitemap-index.xml",
-        "wp-sitemap.xml", "sitemap/sitemap.xml", "sitemap.xml.gz",
-    ):
-        sitemap_queue.append(urljoin(base, extra))
-
-    while sitemap_queue:
-        sm_url = sitemap_queue.popleft()
-        if sm_url in seen_sitemaps:
-            continue
-        seen_sitemaps.add(sm_url)
-
-        result = fetch(sm_url)
-        if not result:
-            continue
-        _, data, ctype = result
-
-        if "gzip" in ctype or sm_url.endswith(".gz"):
-            try:
-                data = gzip.decompress(data)
-            except OSError:
-                continue
-
-        if "xml" in ctype or sm_url.rstrip("/").endswith((".xml", ".gz")):
-            parse_sitemap(data.decode("utf-8", errors="replace"))
-
-
 def try_gcs_listing():
     """Enumerate every object in the source GCS bucket."""
     m = re.match(
@@ -412,7 +289,7 @@ def try_gcs_listing():
     if not m:
         return
 
-    bucket = m.group(1)   # "yubico" — the bucket itself
+    bucket = m.group(1)
     print(f"Listing GCS bucket '{bucket}'...")
 
     list_url = (
@@ -449,63 +326,6 @@ def try_gcs_listing():
         )
 
     print(f"GCS listing returned {len(all_items)} objects.")
-
-
-def probe_common_paths():
-    """HEAD-check name+extension combinations under the start path.
-    Probes never count against MAX_URLS; only hits are downloaded."""
-    directory = START_PREFIX
-    candidates = set()
-
-    # Well-known standalone files in the start directory.
-    for name in KNOWN_FILES:
-        candidates.add(
-            START._replace(
-                path=directory + name.lstrip("/"), query=""
-            ).geturl()
-        )
-
-    # Every base name x every extension, flat in the start directory.
-    for base in BASE_NAMES:
-        for ext in ALL_EXTS:
-            candidates.add(
-                START._replace(
-                    path=directory + base + ext, query=""
-                ).geturl()
-            )
-
-    # Common subdirectories: directory listing + index/bundle files.
-    for d in DIR_NAMES:
-        prefix = directory + d + "/"
-        candidates.add(
-            START._replace(path=prefix, query="").geturl()
-        )
-        for base in (
-            "index", "main", "app", "bundle", "vendor",
-            "config", "manifest",
-        ):
-            for ext in ALL_EXTS:
-                candidates.add(
-                    START._replace(
-                        path=prefix + base + ext, query=""
-                    ).geturl()
-                )
-
-    # Skip anything already discovered.
-    candidates = {
-        c for c in candidates
-        if c not in seen_pages and c not in seen_assets
-    }
-
-    print(f"Probing {len(candidates)} candidate paths (HEAD)...")
-    found = 0
-
-    for url in sorted(candidates):
-        if head_exists(url):
-            found += 1
-            add_asset(url)
-
-    print(f"Probe found {found} existing paths.")
 
 
 def extract_css_references(css, base_url):
@@ -660,6 +480,11 @@ def rewrite_html(data, page_url):
                 rewrite_css(tag.string, page_url)
             )
 
+    # Strip service worker registration from mirrored pages.
+    for tag in soup.find_all("script"):
+        if tag.string and "serviceWorker" in tag.string:
+            tag.decompose()
+
     return soup.encode("utf-8")
 
 
@@ -689,10 +514,8 @@ def rewrite_js(js, base_url):
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# Phase 0: full enumeration before the main crawl.
+# Phase 0: enumerate the bucket (authoritative file list).
 try_gcs_listing()
-discover_sitemaps()
-probe_common_paths()
 
 # Make sure the start page is fetched first.
 try:
@@ -701,7 +524,7 @@ except ValueError:
     pass
 pages_queue.appendleft(START_URL)
 
-# Phase 1: crawl internal HTML pages and recursively discover assets.
+# Phase 1: crawl pages and download all discovered assets.
 while (pages_queue or asset_queue) and (
     len(seen_pages) + len(seen_assets) < MAX_URLS
 ):

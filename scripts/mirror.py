@@ -109,9 +109,8 @@ def is_internal_page(url):
 
 
 def safe_local_path(url, content_type=""):
-    """Store each host separately to avoid filename collisions."""
+    """Store files relative to the site root, mirroring their paths."""
     parsed = urlparse(url)
-    host = parsed.hostname or "unknown"
     path = unquote(parsed.path).lstrip("/")
 
     if not path or path.endswith("/"):
@@ -134,7 +133,12 @@ def safe_local_path(url, content_type=""):
         if ext:
             path += ext
 
-    return f"_sites/{host}/{path}"
+    # Files from a different host get a prefixed folder so they
+    # can't collide with the site's own paths.
+    if parsed.hostname and parsed.hostname != START_HOST:
+        return f"external/{parsed.hostname}/{path}"
+
+    return path
 
 
 def site_url(path):
